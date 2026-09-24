@@ -1,0 +1,61 @@
+name: CD Main
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-version:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Incrementar version
+        shell: bash
+        run: |
+          if grep -q "AppVersion-" README.md; then
+            CURRENT=$(grep -o 'AppVersion-[0-9]*' README.md | head -1 | cut -d'-' -f2)
+            NEXT=$((CURRENT + 1))
+            sed -i "s/AppVersion-$CURRENT/AppVersion-$NEXT/" README.md
+          else
+            echo "AppVersion-1" >> README.md
+          fi
+
+          echo "Actualizado: $(date '+%Y-%m-%d %H:%M:%S')" >> README.md
+
+      - name: Guardar nueva version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "Actualizar version desde CD [skip ci]" || echo "Sin cambios"
+          git push
+
+  validate-prod:
+    needs: update-version
+    runs-on: self-hosted
+
+    steps:
+      - name: Comparar PROD_TOKEN
+        env:
+          TOKEN: ${{ secrets.PROD_TOKEN }}
+        run: |
+          if ($env:TOKEN -eq $env:LOCAL_PROD_TOKEN) {
+            Write-Host "PROD_TOKEN correcto"
+          } else {
+            Write-Host "PROD_TOKEN no coincide"
+            exit 1
+          }
